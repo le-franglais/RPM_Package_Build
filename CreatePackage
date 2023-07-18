@@ -1,0 +1,222 @@
+# Defining an RPM package 
+
+If you’re a routine Linux user, you’re likely no stranger to package managers and how to use them. 
+
+You may not, however, be as well-versed in how to create and deploy packages. This short guide may help give a clearer idea of how to do just that. Spoiler alert : ***anyone*** can do it. 
+
+*\*Note: I’ll be using creating a .rpm package meant for use with RHEL*
+
+## What is a .rpm package
+
+*Red Hat Package Manager (rpm)* is a bundle of files. 
+
+- Can contain binary/executable files, configuration files and/or documentation files.
+
+- Naming convention :
+`<name>-<version>-<release>.<arch>.rpmˋ`
+
+## Requirements
+- A workstation or a virtual machine running an RPM-based distribution, such RHEL or Fedora.
+- Software to build the package.
+- Source code to package.
+- SPEC file to build the RPM.
+
+## Installing devtools 
+`$ sudo dnf install -y rpmdevtools rpmlint`
+- after installing devtools, create your file tree for building rpm packages
+`$ rpmdev-setuptree`
+
+## Package Directory Structure
+
+```
+rpmbuild/
+├── BUILD
+├── RPMS
+├── SOURCES
+├── SPECS
+└── SRPMS
+```
+- **BUILD** : used during the build phase to store and move temporary files
+- **RPMS** : .rpm packages build for other architectures (or noarch) as specified in the `.spec` file.
+- **SOURCES** : sources compressed as `.tar.gz` or `.tgz` files.
+- **SPECS** : contains the `.spec` file that defines how a package is built
+- **SRPMS** : holds the `.src.rpm` package, upon which the .rpm is built
+
+For the purpose of this walkthrough, a simple `hello.sh` script
+
+```
+#!/bin/sh
+echo "Hello world"
+EOF
+```
+
+# Creating the package
+
+1. place the script in the designated directory using the appropriate naming convention 
+
+```
+$ mkdir hello-0.0.1
+$ mv hello.sh hello-0.0.1
+```
+
+2. Tar the script then move it to `/SOURCES`
+```
+$ mkdir hello-0.0.1
+$ mv hello.sh hello-0.0.1
+
+…
+
+$ tar --create --file hello-0.0.1.tar.gz hello-0.0.1
+
+…
+
+$ mv hello-0.0.1.tar.gz SOURCES
+```
+
+3. Create the `.spec` file
+- this file has quite a strict syntax, but can be created automatically using `rpmdev`
+- The `hello.spec` file must then be moved to the `/SPECS` directory
+```
+$ rpmdev-newspec hello
+```
+
+- check your file system structure with
+`tree ~/rpmbuild`
+
+```
+/home/franglais/rpmbuild/
+├── BUILD
+├── BUILDROOT
+├── RPMS
+├── SOURCES
+│   └── hello-0.0.1.tar.gz
+├── SPECS
+│   └── hello.spec
+└── SRPMS
+```
+
+4. Update your `hello.spec` based on actual elements of your build
+
+```
+Name:           hello
+Version:        0.0.1
+Release:        1%{?dist}
+Summary:        A simple hello world script
+BuildArch:      noarch
+
+License:        GPL
+Source0:        %{name}-%{version}.tar.gz
+
+Requires:       bash
+
+%description
+A demo RPM build
+
+%prep
+%setup -q
+
+%install
+rm -rf $RPM_BUILD_ROOT
+mkdir -p $RPM_BUILD_ROOT/%{_bindir}
+cp %{name}.sh $RPM_BUILD_ROOT/%{_bindir}
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%files
+%{_bindir}/%{name}.sh
+
+%changelog
+* tues jul  18 2023 example packagebuild <example.packagebuild@franglais.fr> - 0.0.1
+- First version being packaged
+```
+
+- shortcuts in `.spec` files are called `macros`
+   - list of macros can be found at [Fedora Packaging Documentation](https://docs.fedoraproject.org/en-US/packaging-guidelines/RPMMacros/)
+   - `%{_bindir}` Translates to `/usr/bin`
+   - `%{name}` name of the package (as defined in the Name: field)
+   - `%{version}` version of the package (as defined in the Version: field)
+   - `%{_datadir}` shared data (`/usr/sbin` by default)
+   - `%{_sysconfdir}` configuration directory (`/etc` by default)
+
+5. Checking for errors
+
+- use `rpmlint` to check for errors in your `.spec` file.
+
+```
+$ rpmlint ~/rpmbuild/SPECS/hello.spec
+SPECS/hello.spec: W: no-%build-section
+SPECS/hello.spec: W: invalid-url Source0: hello-0.0.1.tar.gz
+0 packages and 1 specfiles checked; 0 errors, 2 warnings.
+```
+
+## Building the .rpm package
+Build the .rpm package using the `rpmbuild ` command
+
+1. To build the `.src.rpm` package, use
+`$ rpmbuild -bs ~/rpmbuild/SPECS/hello.spec`
+- `-b` is build and `-s` is source
+
+2. To build the binary `.rpm` package, use
+`$ rpmbuild -bb ~/rpmbuild/SPECS/rm-ssh-offendingkey.spec`
+- `-b` is build and `-b` is binary
+
+3. Use `-ba` to build both
+
+4. Here you can also test the build to see what errors appear. Take the example of a more complex build than a simple bash script :
+```
+$ rpmbuild -ba rpmbuild/SPECS/tetris.spec
+...
+RPM build errors:
+Installed (but unpackaged) file(s) found:
+/usr/local/bin/tetris
+/usr/local/share/applications/vitetris.desktop
+/usr/local/share/doc/vitetris/README
+/usr/local/share/doc/vitetris/licence.txt
+/usr/local/share/pixmaps/vitetris.xpm
+```
+- in the event of a more complex build than a simple bash script, you’d add the files in the output above to the `.spec` file
+```
+%files
+/usr/local/bin/tetris
+/usr/local/share/applications/vitetris.desktop
+%doc
+/usr/local/share/doc/vitetris/README
+/usr/local/share/doc/vitetris/licence.txt
+/usr/local/share/pixmaps/vitetris.xpm
+```
+
+## Installing the package
+Use `dnf` to install the package
+```
+$ sudo dnf install ~/rpmbuild/RPMS/noarch/hello-0.0.1-1.el8.noarch.rpm
+```
+
+Use `rpm` to install the package directly
+```
+$ sudo rpm -ivh ~/rpmbuild/RPMS/noarch/hello-0.0.1-1.el8.noarch.rpm
+```
+
+Verify the package has been installed with
+`$ rpm -qi hello`
+```
+$ rpm -qi hello
+Name        : hello
+Version     : 0.0.1
+Release     : 1
+Architecture: noarch
+Install Date: Mon 09 Nov 2020 01:29:51 AM CET
+Group       : Unspecified
+Size        : 294
+License     : GPL
+Signature   : (none)
+Source RPM  : hello-0.0.1-1.el8.src.rpm
+Build Date  : Tues 18 Jul 2023 23:27:14 PM CET
+Build Host  : example packageBuild
+Summary     : A simple hello world script
+Description : A demo RPM build
+```
+
+# Sources
+- [Red Hat Packaging blog](https://www.redhat.com/sysadmin/create-rpm-package)
+- [Red Hat Developers Blog](https://developers.redhat.com/blog/2019/03/18/rpm-packaging-guide-creating-rpm#)
